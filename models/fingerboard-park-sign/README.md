@@ -65,6 +65,7 @@ python3 src/render.py     # プレビュー画像を出力
 | `src/glyphs.py` | TrueType の輪郭を shapely ポリゴンに変換 |
 | `src/lasercut.py` | 切断／彫刻レイヤ分けした SVG を出力 |
 | `src/render.py` | numpy + PIL の自前ラスタライザによるプレビュー生成 |
+| `src/meshy.py` | Meshy OpenAPI クライアント（標準ライブラリのみ・下記参照） |
 
 ## レーザーカットで作る場合
 
@@ -77,20 +78,63 @@ SVG は 1 単位 = 1 mm の原寸。レイヤは色で分けてある。
 材料は 3 mm 合板。本体 1 枚と台座 2 枚を切り出し、支柱を台座のスリットに通して接着する。
 スリットは板厚 3.0 mm ちょうどで引いてあるので、レーザーのカーフ分は加工機に合わせて調整のこと。
 
-## Meshy で生成したい場合
+## Meshy で生成する
 
-この実行環境からは `api.meshy.ai` への接続がネットワークポリシーで遮断されており
-（`CONNECT` が 403）、API キーも設定されていないため、Meshy 側での生成は実行できていない。
-Meshy を使うなら、元写真をそのまま Image to 3D に入れるのが最短。
-Text to 3D で作る場合のプロンプト例:
+Meshy (https://meshy.ai) の OpenAPI を叩くクライアントを `src/meshy.py` に用意してある。
+標準ライブラリのみで書いてあり、**Mac のローカルでもリモート実行環境でも同じコマンドで動く**
+（プロキシと CA バンドルを環境変数から自動で拾う）。
 
-> A small laser-cut plywood sign for a fingerboard skatepark. Two lines of bold squared
-> sans-serif text reading "FINGERBOARD" over "PARK", raised in relief on a rounded plaque
-> whose outline follows the letters. A thin engraved outline runs inside each letter and
-> inside the plaque border; the recessed background is darkened by laser burn. The plaque
-> sits on a narrow vertical post mounted in a small square two-layer plywood base.
-> Natural birch plywood, matte finish, product photo on a white background.
+```bash
+export MESHY_API_KEY=msy_xxxxx
 
-なお本モデルは寸法が確定した CAD 的なソリッドで、Meshy の生成結果とは性質が異なる
-（Meshy はスキャン風のメッシュとテクスチャを返す）。原寸で作りたい場合はこちらを、
-質感重視のビジュアルが欲しい場合は Meshy を、という使い分けになる。
+python3 src/meshy.py image reference/source-photo.jpg   # 写真から生成 (Image to 3D)
+python3 src/meshy.py text --preset --refine             # プロンプトから生成 (Text to 3D)
+python3 src/meshy.py status <task_id> --kind image      # 中断したタスクの再取得
+python3 src/meshy.py image photo.jpg --dry-run          # 送信内容だけ確認 (通信しない)
+```
+
+生成物（glb / fbx / obj / usdz / テクスチャ / サムネイル / タスク JSON）は
+`out/meshy/<種別>-<task_id>/` に保存される。`--polycount` `--topology` `--art-style`
+`--no-pbr` などで調整できる。`--help` に一覧あり。
+
+### セットアップ
+
+**Mac のローカル**
+
+```bash
+export MESHY_API_KEY=msy_xxxxx     # ~/.zshrc に書いておくと楽
+```
+
+追加の依存はなし。`python3 src/meshy.py --help` が通れば準備完了。
+
+**リモート実行環境（Claude Code on the web）**
+
+このコンテナは Mac とは別環境なので、Mac 側で繋いだ連携はここからは見えない。
+2 つ設定が要る（[環境の設定ドキュメント](https://code.claude.com/docs/en/claude-code-on-the-web)）。
+
+1. **ネットワークポリシー** — 既定では egress プロキシが `api.meshy.ai` への CONNECT を
+   403 で拒否する。環境設定で `meshy.ai` を許可ドメインに追加する
+2. **環境変数** — 環境設定の環境変数に `MESHY_API_KEY` を追加する
+
+いずれも既存セッションには反映されないので、設定後にセッションを作り直すこと。
+疎通確認:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://api.meshy.ai/    # 000 なら未開放
+python3 src/meshy.py text --preset --dry-run                       # キー無しでも動く
+```
+
+### 本モデルとの使い分け
+
+Meshy が返すのはスキャン風のメッシュとテクスチャで、寸法は保証されない。
+一方この `src/build.py` が出すのは寸法が確定した CAD 的ソリッドで、そのまま原寸で加工できる。
+
+- **原寸で作りたい / レーザーや 3D プリントに流したい** → `src/build.py` の出力
+- **見た目・質感重視のビジュアルが欲しい** → Meshy
+
+### API 仕様について
+
+エンドポイントとバージョンは `src/meshy.py` 冒頭の `BASE` / `EP_IMAGE` / `EP_TEXT` /
+`AI_MODEL` にまとめてある。この環境からは meshy.ai に到達できず実通信での検証ができて
+いないため、動かない場合は [公式ドキュメント](https://docs.meshy.ai/) と突き合わせて
+この定数だけ直せば追従できる。
