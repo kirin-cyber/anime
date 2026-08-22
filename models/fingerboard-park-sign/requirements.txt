@@ -1,0 +1,7 @@
+numpy
+scipy
+shapely
+trimesh
+manifold3d
+fonttools
+pillow
