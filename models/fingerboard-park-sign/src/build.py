@@ -26,19 +26,24 @@ OUT = os.path.abspath(os.path.join(HERE, "..", "out"))
 FONT = os.path.join(HERE, "fonts", "Tektur-Medium.ttf")
 
 # ---- パラメータ (すべて mm) -------------------------------------------------
+# 比率はすべて元写真からの実測値 (docs/measurements.md 参照)。
+# 絶対寸法の基準は TARGET_WIDTH のみ ── 写真に寸法の基準物が写っていないため、
+# プレート全幅 80mm を仮定している。実物に合わせるならここだけ変えればよい。
 LINE1, LINE2 = "FINGERBOARD", "PARK"
-TARGET_WIDTH = 80.0   # 看板プレートの全幅
-CAP = 9.0             # 大文字の高さ (TARGET_WIDTH に合わせて後で再スケール)
-TRACKING = 0.35       # 字間
-FATTEN = 0.72         # 書体を太らせる量 (写真の重いウェイトに寄せる)
-LINE_GAP = 2.5        # 1 行目ベースラインと 2 行目キャップの隙間
+TARGET_WIDTH = 80.0   # 看板プレートの全幅 (仮定値)
+CAP = 12.0            # 1 行目の大文字高 (TARGET_WIDTH に合わせて後で再スケール)
+CAP2_SCALE = 1.048    # 2 行目 (PARK) の字高比 ── 写真では 1 行目よりわずかに大きい
+WIDTH_SCALE = 0.674   # 書体の横方向スケール (実測の 文字幅/字高 に合わせる)
+TRACKING = 0.0        # 字間
+FATTEN = 0.35         # 書体を太らせる量 (写真のウェイトに寄せる)
+LINE_GAP = 2.688      # 2 行目キャップ上端と 1 行目ベースラインの隙間
 
 PLY = 3.0             # 合板 1 枚の厚み
-PLAQUE_PAD = 2.6      # 文字からプレート外周までのオフセット
-RIM = 1.8             # 外周フチの幅
+PLAQUE_PAD = 2.297    # 文字からプレート外周までのオフセット
+RIM = 1.3             # 外周フチの幅 (これより内側が彫り下げられる)
 RELIEF = 1.2          # 文字とフチの立ち上がり
-GROOVE_INSET = 0.55   # 彫り線の内側オフセット
-GROOVE_W = 0.6        # 彫り線の幅
+GROOVE_INSET = 0.7    # 彫り線の内側オフセット
+GROOVE_W = 0.5        # 彫り線の幅
 GROOVE_D = 0.5        # 彫り線の深さ
 
 POST_W = 7.5          # 支柱の幅
@@ -55,13 +60,14 @@ QS = 16               # 円弧の分割数
 # ---- 2D 形状 ----------------------------------------------------------------
 def build_2d():
     """看板の 2D 形状群を返す。原点はプレート下端中央、Y+ が上。"""
-    g1, w1 = text_polygon(FONT, LINE1, CAP, TRACKING)
-    g2, w2 = text_polygon(FONT, LINE2, CAP, TRACKING)
+    cap2 = CAP * CAP2_SCALE
+    g1, w1 = text_polygon(FONT, LINE1, CAP, TRACKING, WIDTH_SCALE)
+    g2, w2 = text_polygon(FONT, LINE2, cap2, TRACKING, WIDTH_SCALE)
     if FATTEN:
         g1 = g1.buffer(FATTEN, join_style=2, mitre_limit=2.0)
         g2 = g2.buffer(FATTEN, join_style=2, mitre_limit=2.0)
     g1 = shapely.affinity.translate(g1, -g1.bounds[0] - (g1.bounds[2] - g1.bounds[0]) / 2,
-                                    CAP + LINE_GAP)
+                                    cap2 + LINE_GAP)
     g2 = shapely.affinity.translate(g2, -g2.bounds[0] - (g2.bounds[2] - g2.bounds[0]) / 2, 0)
     text = shapely.union_all([g1, g2])
 

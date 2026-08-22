@@ -4,11 +4,14 @@
 写真の実物を採寸のうえ再現し、パラメトリックなビルドスクリプトから
 STL / GLB とレーザーカット用 SVG を生成する。
 
-![プレビュー](out/preview-hero.png)
+![プレビュー](out/tex-hero.png)
+
+元写真から採寸して形状を起こし、写真そのものを前面に投影したテクスチャ付きモデル（上）と、
+素の形状モデル（下）の 2 種類を出力する。
 
 | | |
 |---|---|
-| ![正面](out/preview-front.png) | ![斜め](out/preview-side.png) |
+| ![素の形状](out/preview-hero.png) | ![斜め](out/preview-side.png) |
 
 ## 出力物
 
@@ -16,22 +19,30 @@ STL / GLB とレーザーカット用 SVG を生成する。
 |---|---|
 | [`out/fingerboard-park-sign.stl`](out/fingerboard-park-sign.stl) | 3D プリント（watertight・単一ソリッド） |
 | [`out/fingerboard-park-sign.glb`](out/fingerboard-park-sign.glb) | ビューワ／Blender／Web 表示 |
+| [`out/fingerboard-park-sign-textured.glb`](out/fingerboard-park-sign-textured.glb) | 元写真を投影したテクスチャ付き（見た目重視） |
 | [`out/fingerboard-park-sign-lasercut.svg`](out/fingerboard-park-sign-lasercut.svg) | レーザー加工用（原寸 1:1） |
-| `out/preview-*.png` | レンダリング画像 |
+| [`out/alignment-check.png`](out/alignment-check.png) | モデル輪郭と写真の位置合わせ確認 |
+| `out/texture.png` / `out/preview-*.png` / `out/tex-*.png` | テクスチャとレンダリング画像 |
 
 ## 寸法
 
-全体 **W 80.0 × D 20.0 × H 48.6 mm**（体積 7.78 cm³）。
-指スケのデッキ（約 96 mm）と並べたときのスケール感に合わせてある。
+全体 **W 80.0 × D 20.0 × H 57.5 mm**（体積 9.32 cm³）。
+比率はすべて元写真の実測から決めている（[docs/measurements.md](docs/measurements.md)）。
+写真に寸法の基準物が写っていないため、**プレート全幅 80 mm を仮定**した絶対寸法。
+実物の寸法が分かっているなら `src/build.py` の `TARGET_WIDTH` だけ変えれば全体が追従する。
 
 | 部位 | 寸法 |
 |---|---|
-| 看板プレート | 80 × 22.6 mm / 板厚 3 mm |
-| 文字（大文字高） | 8.7 mm、2 行（FINGERBOARD / PARK） |
+| 看板プレート | 80.0 × 31.6 mm / 板厚 3 mm |
+| 文字（大文字高） | 1 行目 12.3 mm / 2 行目 13.0 mm |
+| 行間 | 1.9 mm |
 | レリーフ（文字・フチの立ち上がり） | 1.2 mm |
-| 彫り線（二重線） | 幅 0.6 mm / 深さ 0.5 mm |
+| 彫り線（二重線） | 幅 0.5 mm / 深さ 0.5 mm |
 | 支柱 | 幅 7.5 mm × 厚 3 mm、台座上面から 20 mm |
 | 台座 | 20 mm 角 + 19 mm 角の合板 2 枚重ね（各 3 mm） |
+
+写真では 2 行目（PARK）が 1 行目より約 5% 大きい。これを見落とすとプレートの
+アスペクトが合わなくなるため、`CAP2_SCALE` で行ごとに字高を分けている。
 
 ## 構成の考え方
 
@@ -45,7 +56,29 @@ STL / GLB とレーザーカット用 SVG を生成する。
 5. 支柱と 2 枚重ねの台座を結合し、単一の watertight ソリッドにする
 
 書体は実物に合わせ、角ばったグロテスク体 [Tektur](https://github.com/hyvyys/Tektur)
-（SIL OFL, `src/fonts/OFL.txt`）を 0.72 mm 太らせて使用している。
+（SIL OFL, `src/fonts/OFL.txt`）を横 0.674 倍に詰め、0.35 mm 太らせて使用している。
+実測の「文字幅合計 ÷ 字高 = 6.07」に合わせた値。
+
+## 写真から起こす（テクスチャ付きモデル）
+
+1 枚の写真から真の 3D 形状を復元することはできないので、代わりに
+**形状は写真からの採寸で起こし、色は写真そのものを貼る**という組み立てにしている。
+
+```bash
+python3 src/texture.py reference/source-photo.jpg
+```
+
+`src/texture.py` がやっていること:
+
+1. モデル前面 `(x, z)` 平面 → 写真ピクセルの射影変換を推定する。モデルのプレート外形と
+   文字輪郭を写真のエッジ画像に重ね、一致度が最大になる変換を Nelder-Mead で探索する
+2. その変換で写真を正面から見た状態に歪み補正し、テクスチャ画像にする
+3. 前向きの面には `(x, z)` から UV を貼る。看板の輪郭の外（背景の作業台や石）と、
+   看板より手前にあって同じ射影に乗らない台座は、写真から拾った無地色で塗る
+4. 小口・上面・裏面にも写真から拾った無地色を割り当て、テクスチャ付き GLB として書き出す
+
+位置合わせの結果は [`out/alignment-check.png`](out/alignment-check.png) で確認できる
+（緑＝プレート外形、マゼンタ＝文字輪郭）。
 
 ## ビルド
 
@@ -54,6 +87,7 @@ pip install -r requirements.txt
 python3 src/build.py      # STL / GLB を out/ に出力
 python3 src/lasercut.py   # レーザーカット用 SVG を出力
 python3 src/render.py     # プレビュー画像を出力
+python3 src/texture.py <写真>   # 写真を投影したテクスチャ付き GLB を出力
 ```
 
 寸法・文字・書体はすべて `src/build.py` 冒頭の定数で変更できる。
@@ -64,7 +98,8 @@ python3 src/render.py     # プレビュー画像を出力
 | `src/build.py` | 寸法定義・2D 形状生成・3D ブーリアン・エクスポート |
 | `src/glyphs.py` | TrueType の輪郭を shapely ポリゴンに変換 |
 | `src/lasercut.py` | 切断／彫刻レイヤ分けした SVG を出力 |
-| `src/render.py` | numpy + PIL の自前ラスタライザによるプレビュー生成 |
+| `src/render.py` | numpy + PIL の自前ラスタライザによるプレビュー生成（テクスチャ描画も対応） |
+| `src/texture.py` | 写真との位置合わせとテクスチャ焼き込み |
 | `src/meshy.py` | Meshy OpenAPI クライアント（標準ライブラリのみ・下記参照） |
 
 ## レーザーカットで作る場合

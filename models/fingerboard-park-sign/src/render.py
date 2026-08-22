@@ -101,14 +101,80 @@ def render(mesh, eye, target, size=1000, ss=2, fov=28.0, ortho=None, ground=True
     return Image.fromarray((img * 255).astype(np.uint8)).resize((size, size), Image.LANCZOS)
 
 
+def render_textured(mesh, tex, eye, target, size=1000, ss=2, fov=28.0, ground=True):
+    """UV 付きメッシュをテクスチャを貼って描画する。"""
+    W = H = size * ss
+    M = look_at(eye, target)
+    n = mesh.face_normals
+    shade = np.clip(0.55 + 0.42 * np.clip(n @ LIGHT, 0, 1) + 0.14 * np.clip(n @ FILL, 0, 1), 0, 1.25)
+    T = np.asarray(tex, dtype=np.float32) / 255.0
+    th, tw = T.shape[:2]
+    uv = mesh.visual.uv[mesh.faces]            # (F,3,2)
+
+    img = np.ones((H, W, 3)) * BG
+    zbuf = np.full((H, W), np.inf)
+    items = []
+    if ground:
+        g = trimesh.creation.box(extents=[900, 900, 2]); g.apply_translation([0, 0, -1])
+        items.append((g, np.tile(GROUND, (len(g.faces), 1))))
+        v = mesh.vertices.copy()
+        t = v[:, 2] / LIGHT[2]
+        v[:, 0] -= LIGHT[0] * t; v[:, 1] -= LIGHT[1] * t; v[:, 2] = 0.05
+        sh = trimesh.Trimesh(vertices=v, faces=mesh.faces, process=False)
+        items.append((sh, np.tile(SHADOW, (len(mesh.faces), 1))))
+    for m, cols in items:
+        img = _raster([(m.vertices, m.faces, cols)], M, W, H, fov, None)  # 下地
+        break
+    if items:
+        img = _raster([(m.vertices, m.faces, c) for m, c in items], M, W, H, fov, None)
+
+    cam = (M[:3, :3] @ mesh.vertices.T).T + M[:3, 3]
+    fl = (H / 2) / np.tan(np.radians(fov) / 2)
+    z = np.maximum(-cam[:, 2], 1e-6)
+    sx = cam[:, 0] * fl / z + W / 2
+    sy = H / 2 - cam[:, 1] * fl / z
+    tri = np.stack([sx[mesh.faces], sy[mesh.faces]], axis=-1)
+    td = z[mesh.faces]
+    for i in np.argsort(-td.mean(axis=1)):
+        p = tri[i]
+        x0 = max(int(p[:, 0].min()), 0); x1 = min(int(p[:, 0].max()) + 2, W)
+        y0 = max(int(p[:, 1].min()), 0); y1 = min(int(p[:, 1].max()) + 2, H)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        (ax, ay), (bx, by), (cx, cy) = p
+        den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(den) < 1e-9:
+            continue
+        gx, gy = np.meshgrid(np.arange(x0, x1) + 0.5, np.arange(y0, y1) + 0.5)
+        w0 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / den
+        w1 = ((cy - ay) * (gx - cx) + (ax - cx) * (gy - cy)) / den
+        w2 = 1 - w0 - w1
+        m_ = (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
+        if not m_.any():
+            continue
+        zz = w0 * td[i, 0] + w1 * td[i, 1] + w2 * td[i, 2]
+        sub = zbuf[y0:y1, x0:x1]
+        hit = m_ & (zz < sub)
+        if not hit.any():
+            continue
+        sub[hit] = zz[hit]
+        u = w0 * uv[i, 0, 0] + w1 * uv[i, 1, 0] + w2 * uv[i, 2, 0]
+        v = w0 * uv[i, 0, 1] + w1 * uv[i, 1, 1] + w2 * uv[i, 2, 1]
+        px = np.clip((u * tw).astype(int), 0, tw - 1)
+        py = np.clip(((1 - v) * th).astype(int), 0, th - 1)
+        img[y0:y1, x0:x1][hit] = np.clip(T[py[hit], px[hit]] * shade[i], 0, 1)
+
+    return Image.fromarray((img * 255).astype(np.uint8)).resize((size, size), Image.LANCZOS)
+
+
 def main():
     mesh, _ = build_mesh()
     os.makedirs(OUT, exist_ok=True)
     top = mesh.bounds[1][2]
     views = {
-        "preview-hero.png":  dict(eye=(40, -118, 36), target=(0, 0, top * 0.66), fov=36),
-        "preview-front.png": dict(eye=(8, -150, 34), target=(0, 0, top * 0.70), fov=34),
-        "preview-side.png":  dict(eye=(112, -74, 40), target=(0, 0, top * 0.58), fov=32),
+        "preview-hero.png":  dict(eye=(46, -136, 40), target=(0, 0, top * 0.62), fov=38),
+        "preview-front.png": dict(eye=(9, -172, 38), target=(0, 0, top * 0.66), fov=36),
+        "preview-side.png":  dict(eye=(128, -86, 46), target=(0, 0, top * 0.55), fov=34),
     }
     for name, kw in views.items():
         render(mesh, **kw).save(os.path.join(OUT, name))
